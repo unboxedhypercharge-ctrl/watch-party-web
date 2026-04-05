@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Anime Watch Party</title>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <style>
+    body { font-family: Arial; background: #111; color: white; text-align: center; margin: 0; padding: 20px; }
+    video { width: 80%; max-width: 1000px; border: 3px solid #007bff; border-radius: 10px; box-shadow: 0px 0px 20px rgba(0,123,255,0.5); }
+    #status { color: yellow; font-size: 18px; margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+
+  <h1>Watch Party</h1>
+  <p id="status">Connecting to Sync Server...</p>
+
+  <video id="myVideo" controls>
+    <source src="https://video-proxy.owye2002.workers.dev/?fileId=1Uzg6vNOETRvzJF7176cWxHpZp8N2SdmJ&apiKey=AIzaSyDYfvziz-kGATGirw__-shz140-cX-MVvE" type="video/mp4">
+  </video>
+
+  <script>
+    const serverUrl = 'https://watch-party-server-bjmb.onrender.com/'; 
+    const socket = io(serverUrl);
+    const video = document.getElementById('myVideo');
+    const statusText = document.getElementById('status');
+
+    let isExternalCommand = false;
+
+    socket.on('connect', () => {
+      statusText.innerText = '🟢 Synced and Ready!';
+      statusText.style.color = '#00ff00';
+    });
+
+    
+    video.addEventListener('play', () => {
+      if (!isExternalCommand) {
+        socket.emit('play_video', video.currentTime);
+      }
+      isExternalCommand = false; 
+    });
+
+    video.addEventListener('pause', () => {
+      if (!isExternalCommand) {
+        socket.emit('pause_video', video.currentTime);
+      }
+      isExternalCommand = false;
+    });
+
+    video.addEventListener('seeked', () => {
+      if (!isExternalCommand) {
+        socket.emit('seek_video', video.currentTime);
+      }
+      isExternalCommand = false;
+    });
+
+    socket.on('sync_play', (time) => {
+      isExternalCommand = true; 
+      video.currentTime = time; 
+      video.play();
+    });
+
+    socket.on('sync_pause', (time) => {
+      isExternalCommand = true;
+      video.currentTime = time;
+      video.pause();
+    });
+
+    socket.on('sync_seek', (time) => {
+      isExternalCommand = true;
+      video.currentTime = time;
+    });
+
+  </script>
+</body>
+</html>
