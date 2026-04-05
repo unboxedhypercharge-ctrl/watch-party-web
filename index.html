@@ -68,7 +68,9 @@
       isExternalCommand = false;
     });
 
-    video.addEventListener('pause', () => {
+   video.addEventListener('pause', () => {
+      statusText.innerText = 'Paused';
+      statusText.style.color = 'white';
       if (!isExternalCommand) socket.emit('pause_video', video.currentTime);
       isExternalCommand = false;
     });
@@ -83,9 +85,13 @@
       statusText.style.color = 'orange';
       socket.emit('i_am_buffering');
     });
-
-    video.addEventListener('playing', () => {
+   video.addEventListener('canplay', () => {
       statusText.innerText = '🟢 Synced and Ready!';
+      statusText.style.color = '#00ff00';
+      socket.emit('buffer_resolved'); 
+    });
+  video.addEventListener('playing', () => {
+      statusText.innerText = 'Playing';
       statusText.style.color = '#00ff00';
     });
 
@@ -99,7 +105,10 @@
       statusText.innerText = 'Waiting for a friend to buffer...';
       statusText.style.color = 'orange';
     });
-
+    socket.on('clear_wait', () => { 
+      statusText.innerText = '🟢 Synced and Ready!';
+      statusText.style.color = '#00ff00';
+    });
   </script>
 </body>
 </html>
