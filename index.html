@@ -4,10 +4,12 @@
   <title>Watch Party</title>
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-  <style>
+<style>
     body { font-family: Arial; background: #111; color: white; text-align: center; margin: 0; padding: 20px; }
     .video-container { position: relative; width: 80%; max-width: 1000px; margin: 0 auto; }
-    video { width: 100%; border: 3px solid #007bff; border-radius: 10px; background: black; }
+    
+    video { width: 100%; border: 3px solid #007bff; border-radius: 10px; background: black; outline: none; }
+    
     #status { color: yellow; font-size: 18px; margin-bottom: 10px; }
     #join-overlay {
       position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -29,7 +31,7 @@
     <video id="myVideo" controls></video>
   </div>
 
-  <script>
+<script>
     const serverUrl = 'https://watch-party-server-bjmb.onrender.com'; 
     const socket = io(serverUrl);
     const video = document.getElementById('myVideo');
@@ -37,7 +39,7 @@
     const joinOverlay = document.getElementById('join-overlay');
     const joinBtn = document.getElementById('join-btn');
 
-    let isExternalCommand = false;
+    let isSyncing = false; 
 
     const videoSrc = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8';
 
@@ -45,47 +47,75 @@
       const hls = new Hls();
       hls.loadSource(videoSrc);
       hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, function() {
-        console.log("Video loaded and ready to play!");
-      });
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = videoSrc;
     }
+
     joinBtn.addEventListener('click', () => {
       joinOverlay.style.display = 'none';
-      video.play().then(() => { video.pause(); }).catch(e => console.log(e));
+      
+      isSyncing = true; 
+      
+      video.play().then(() => { 
+        video.pause(); 
+        socket.emit('request_catch_up');
+      }).catch(e => console.log("Autoplay blocked:", e));
     });
 
     socket.on('connect', () => {
-      statusText.innerText = '🟢 Synced and Ready!';
+      statusText.innerText = '🟢 Connected! Click Join.';
       statusText.style.color = '#00ff00';
     });
 
     socket.on('catch_up', (serverMemory) => {
-      isExternalCommand = true;
+      isSyncing = true; 
       video.currentTime = serverMemory.time;
-      if (serverMemory.isPlaying) video.play();
+      
+      if (serverMemory.isPlaying) {
+        video.play().then(() => { isSyncing = false; }); 
+      } else {
+        video.pause();
+        isSyncing = false;
+      }
     });
 
     video.addEventListener('play', () => {
-      if (!isExternalCommand) socket.emit('play_video', video.currentTime);
-      isExternalCommand = false;
+      if (!isSyncing) socket.emit('play_video', video.currentTime);
     });
 
     video.addEventListener('pause', () => {
-      if (!isExternalCommand) socket.emit('pause_video', video.currentTime);
-      isExternalCommand = false;
+      if (!isSyncing) socket.emit('pause_video', video.currentTime);
     });
 
     video.addEventListener('seeked', () => {
-      if (!isExternalCommand) socket.emit('seek_video', video.currentTime);
-      isExternalCommand = false;
+      if (!isSyncing) socket.emit('seek_video', video.currentTime);
+    });
+
+    socket.on('sync_play', (time) => { 
+      isSyncing = true; 
+      video.currentTime = time; 
+      video.play().then(() => { isSyncing = false; }); 
+    });
+    
+    socket.on('sync_pause', (time) => { 
+      isSyncing = true; 
+      video.currentTime = time; 
+      video.pause(); 
+      isSyncing = false; 
+    });
+    
+    socket.on('sync_seek', (time) => { 
+      isSyncing = true; 
+      video.currentTime = time; 
+      setTimeout(() => { isSyncing = false; }, 100); 
     });
 
     video.addEventListener('waiting', () => {
-      statusText.innerText = 'Buffering... pausing room!';
-      statusText.style.color = 'orange';
-      socket.emit('i_am_buffering');
+      if (!isSyncing) {
+        statusText.innerText = 'Buffering... pausing room!';
+        statusText.style.color = 'orange';
+        socket.emit('i_am_buffering');
+      }
     });
 
     video.addEventListener('canplay', () => {
@@ -94,13 +124,10 @@
       socket.emit('buffer_resolved'); 
     });
 
-    socket.on('sync_play', (time) => { isExternalCommand = true; video.currentTime = time; video.play(); });
-    socket.on('sync_pause', (time) => { isExternalCommand = true; video.currentTime = time; video.pause(); });
-    socket.on('sync_seek', (time) => { isExternalCommand = true; video.currentTime = time; });
-    
     socket.on('force_wait', () => { 
-      isExternalCommand = true; 
+      isSyncing = true; 
       video.pause(); 
+      isSyncing = false;
       statusText.innerText = 'Waiting for a friend to buffer...';
       statusText.style.color = 'orange';
     });
