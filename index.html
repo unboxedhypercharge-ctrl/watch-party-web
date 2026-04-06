@@ -9,16 +9,17 @@
 
   <style>
     body { font-family: Arial; background: #111; color: white; text-align: center; margin: 0; padding: 20px; }
-    
     .player-wrapper { position: relative; width: 80%; max-width: 1000px; margin: 0 auto; box-shadow: 0px 0px 30px rgba(0,0,0,0.9); border-radius: 10px; overflow: hidden; }
-    
     :root { --plyr-color-main: #ff4757; }
-
     #status { color: yellow; font-size: 18px; margin-bottom: 10px; }
     
     #join-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; justify-content: center; align-items: center; z-index: 200; }
     #join-btn { padding: 20px 40px; font-size: 24px; background: #ff4757; color: white; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; }
-    #join-btn:hover { background: #ff6b81; }
+    
+    .tools-container { margin-top: 20px; display: flex; justify-content: center; gap: 10px; }
+    .custom-file-upload { border: 2px solid #ff4757; color: #ff4757; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; transition: 0.3s; }
+    .custom-file-upload:hover { background: #ff4757; color: white; }
+    input[type="file"] { display: none; }
   </style>
 </head>
 <body>
@@ -30,8 +31,14 @@
     <div id="join-overlay">
       <button id="join-btn">Click to Join Room</button>
     </div>
-    
     <video id="myVideo" controls crossorigin playsinline></video>
+  </div>
+
+  <div class="tools-container">
+    <label class="custom-file-upload">
+      <input type="file" id="subtitle-upload" accept=".vtt,.srt">
+       Upload Custom Subtitles (.vtt)
+    </label>
   </div>
 
   <script>
@@ -41,11 +48,14 @@
     const statusText = document.getElementById('status');
     const joinOverlay = document.getElementById('join-overlay');
     const joinBtn = document.getElementById('join-btn');
+    const subtitleUpload = document.getElementById('subtitle-upload');
 
     let player; 
     let isExternalCommand = false; 
     let intendedState = 'paused';
     let bufferTimeout;
+    
+    let hasJoined = false; 
 
     const videoSrc = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8';
     
@@ -55,31 +65,50 @@
       hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED, function() {
         player = new Plyr(video, {
-          controls: ['play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'],
+          controls: ['play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'captions', 'settings', 'fullscreen'],
           settings: ['quality', 'speed']
         });
         setupSyncLogic(); 
       });
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = videoSrc;
-      player = new Plyr(video);
-      setupSyncLogic();
     }
+
+    subtitleUpload.addEventListener('change', function(event) {
+      const file = event.target.files[0];
+      if (file) {
+        const fileUrl = URL.createObjectURL(file);
+        
+        const track = document.createElement('track');
+        track.kind = 'captions';
+        track.label = 'Custom Subtitles';
+        track.srclang = 'en';
+        track.src = fileUrl;
+        track.default = true;
+        
+        video.appendChild(track);
+        
+        alert("Subtitles loaded! Click the 'CC' button on the player to turn them on.");
+      }
+    });
 
     function setupSyncLogic() {
       
       player.on('play', () => {
-        if (!isExternalCommand) socket.emit('play_video', player.currentTime);
+        if (hasJoined && !isExternalCommand) socket.emit('play_video', player.currentTime);
         isExternalCommand = false;
       });
 
       player.on('pause', () => {
-        if (!isExternalCommand) socket.emit('pause_video', player.currentTime);
+        if (hasJoined && !isExternalCommand) socket.emit('pause_video', player.currentTime);
         isExternalCommand = false;
       });
 
       player.on('seeked', () => {
-        if (!isExternalCommand) socket.emit('seek_video', player.currentTime);
+        if (hasJoined && !isExternalCommand) socket.emit('seek_video', player.currentTime);
+        isExternalCommand = false;
+      });
+
+      player.on('ratechange', () => {
+        if (hasJoined && !isExternalCommand) socket.emit('change_speed', player.speed);
         isExternalCommand = false;
       });
 
@@ -102,17 +131,22 @@
         player.currentTime = time; 
       });
 
+      socket.on('sync_speed', (newSpeed) => {
+        isExternalCommand = true;
+        player.speed = newSpeed;
+      });
+
       player.on('waiting', () => {
-        bufferTimeout = setTimeout(() => {
-          socket.emit('i_am_buffering');
-        }, 300);
+        if(hasJoined) {
+          bufferTimeout = setTimeout(() => { socket.emit('i_am_buffering'); }, 300);
+        }
       });
 
       player.on('playing', () => clearTimeout(bufferTimeout));
       
       player.on('canplay', () => {
         clearTimeout(bufferTimeout);
-        socket.emit('buffer_resolved'); 
+        if(hasJoined) socket.emit('buffer_resolved'); 
       });
 
       socket.on('force_wait', () => { 
@@ -131,6 +165,11 @@
         }
       });
     }
+    socket.on('connect', () => {
+      statusText.innerText = '🟢 Connected! Click Join.';
+      statusText.style.color = '#00ff00';
+    });
+
     joinBtn.addEventListener('click', () => {
       joinOverlay.style.display = 'none';
       player.play().then(() => { 
@@ -143,9 +182,13 @@
       if(player) {
         isExternalCommand = true;
         player.currentTime = serverMemory.time;
+        player.speed = serverMemory.speed; 
+        
         if (serverMemory.isPlaying) {
           intendedState = 'playing';
-          player.play();
+          player.play().then(() => { hasJoined = true; }); 
+        } else {
+          hasJoined = true; 
         }
       }
     });
