@@ -141,13 +141,10 @@
         }
         player.play(); 
       });
-      
       socket.on('sync_pause', (time) => { 
         intendedState = 'paused';
-        if (Math.abs(player.currentTime - time) > 1.5) {
-          ignoreNextSeek = true;
-          player.currentTime = time; 
-        }
+        ignoreNextSeek = true;
+        player.currentTime = time;
         player.pause(); 
       });
       
@@ -159,6 +156,15 @@
       socket.on('sync_speed', (newSpeed) => {
         intendedSpeed = newSpeed;
         player.speed = newSpeed;
+      });
+
+      socket.on('host_time', (hostTime) => {
+        if (hasJoined && intendedState === 'playing') {
+          if (hostTime - player.currentTime > 2) {
+            ignoreNextSeek = true;
+            player.currentTime = hostTime; 
+          }
+        }
       });
 
       player.on('waiting', () => {
