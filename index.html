@@ -56,7 +56,7 @@
     </div>
 
     <div class="sidebar">
-      <h2>🔍 Search Anime</h2>
+      <h2>Search</h2>
       <div class="search-box">
         <input type="text" id="search-input" placeholder="e.g. Naruto, Bleach...">
         <button id="search-btn">Search</button>
@@ -74,7 +74,7 @@
     </label>
   </div>
 
-  <script>
+<script>
     const serverUrl = 'https://watch-party-server-bjmb.onrender.com'; 
     const socket = io(serverUrl);
     const video = document.getElementById('myVideo');
@@ -108,7 +108,7 @@
 
     document.getElementById('room-title').innerText = `Room: ${roomId}`;
 
-    const CONSUMET_URL = 'https://api.consumet.org/anime/gogoanime';
+    const AMVSTR_URL = 'https://api.amvstr.me/api/v2';
 
     searchBtn.addEventListener('click', async () => {
       const query = searchInput.value.trim();
@@ -117,12 +117,12 @@
       resultsContainer.innerHTML = '<p style="color: yellow; text-align: center;">Searching...</p>';
 
       try {
-        const response = await fetch(`${CONSUMET_URL}/${query}`);
+        const response = await fetch(`${AMVSTR_URL}/search?q=${query}`);
         const data = await response.json();
 
         resultsContainer.innerHTML = ''; 
 
-        if (data.results.length === 0) {
+        if (!data.results || data.results.length === 0) {
           resultsContainer.innerHTML = '<p style="color: red; text-align: center;">No anime found.</p>';
           return;
         }
@@ -130,20 +130,24 @@
         data.results.forEach(anime => {
           const div = document.createElement('div');
           div.className = 'anime-result';
+          
+          const imageUrl = anime.coverImage.large || anime.coverImage.extraLarge;
+          const title = anime.title.english || anime.title.romaji;
+
           div.innerHTML = `
-            <img src="${anime.image}" alt="poster">
+            <img src="${imageUrl}" alt="poster">
             <div>
-              <h4>${anime.title}</h4>
-              <p>${anime.releaseDate || 'Unknown Year'}</p>
+              <h4>${title}</h4>
+              <p>${anime.format || 'TV'}</p>
             </div>
           `;
           
-          div.addEventListener('click', () => loadAnimeEpisode(anime.id));
+          div.addEventListener('click', () => loadAnimeEpisode(anime.id, title));
           resultsContainer.appendChild(div);
         });
 
       } catch (error) {
-        resultsContainer.innerHTML = '<p style="color: red; text-align: center;">Error fetching data.</p>';
+        resultsContainer.innerHTML = '<p style="color: red; text-align: center;">Error fetching data. API might be busy.</p>';
         console.error(error);
       }
     });
@@ -152,13 +156,13 @@
       if (e.key === 'Enter') searchBtn.click();
     });
 
-    async function loadAnimeEpisode(animeId) {
+    async function loadAnimeEpisode(animeId, animeTitle) {
       if (!hasJoined) return alert("Please click Join Room first!");
       
       resultsContainer.innerHTML = '<p style="color: yellow; text-align: center;">Fetching Episode 1...</p>';
 
       try {
-        const infoRes = await fetch(`${CONSUMET_URL}/info/${animeId}`);
+        const infoRes = await fetch(`${AMVSTR_URL}/info/${animeId}`);
         const infoData = await infoRes.json();
 
         if (!infoData.episodes || infoData.episodes.length === 0) {
@@ -167,20 +171,21 @@
 
         const firstEpisodeId = infoData.episodes[0].id;
 
-        const watchRes = await fetch(`${CONSUMET_URL}/watch/${firstEpisodeId}`);
+        const watchRes = await fetch(`${AMVSTR_URL}/stream/${firstEpisodeId}`);
         const watchData = await watchRes.json();
 
-        const streamLink = watchData.sources.find(s => s.quality === 'default' || s.quality === 'auto').url;
+        const streamLink = watchData.stream.multi.main.url;
 
         socket.emit('change_video', streamLink);
         
-        resultsContainer.innerHTML = `<p style="color: #00ff00; text-align: center;">Now Playing: ${infoData.title}</p>`;
+        resultsContainer.innerHTML = `<p style="color: #00ff00; text-align: center;">Now Playing: ${animeTitle}</p>`;
 
       } catch (error) {
         alert("Failed to load episode. The provider might be down.");
         console.error(error);
       }
     }
+
     function loadVideo(url) {
       if (hls) hls.destroy(); 
       
@@ -199,6 +204,7 @@
         });
       }
     }
+
     socket.on('sync_new_video', (newUrl) => {
       statusText.innerText = 'Loading new video...';
       statusText.style.color = 'yellow';
@@ -210,6 +216,31 @@
       loadVideo(newUrl); 
       
       setTimeout(() => { if(player) player.play(); }, 1000);
+    });
+
+    subtitleUpload.addEventListener('change', function(event) {
+      const file = event.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = function(e) { socket.emit('upload_subtitle', e.target.result); };
+        reader.readAsText(file);
+      }
+    });
+
+    socket.on('sync_subtitle', (vttText) => {
+      const blob = new Blob([vttText], { type: 'text/vtt' });
+      const url = URL.createObjectURL(blob);
+      const oldTrack = document.getElementById('myTrack');
+      if (oldTrack) oldTrack.remove();
+      const newTrack = document.createElement('track');
+      newTrack.id = 'myTrack';
+      newTrack.kind = 'captions';
+      newTrack.srclang = 'en';
+      newTrack.src = url;
+      newTrack.default = true;
+      video.appendChild(newTrack);
+      setTimeout(() => { if(player) player.captions.toggled = true; }, 200);
+      alert("Subtitles updated and turned on!");
     });
 
     function setupSyncLogic() {
@@ -304,7 +335,10 @@
 
     joinBtn.addEventListener('click', () => {
       joinOverlay.style.display = 'none';
-      socket.emit('request_catch_up');
+      player.play().then(() => { 
+        player.pause(); 
+        socket.emit('request_catch_up');
+      }).catch(e => console.log(e));
     });
 
     socket.on('catch_up', (serverMemory) => {
@@ -318,6 +352,21 @@
           player.currentTime = serverMemory.time;
           intendedSpeed = serverMemory.speed || 1;
           player.speed = intendedSpeed;
+
+          if (serverMemory.subtitle) {
+            const blob = new Blob([serverMemory.subtitle], { type: 'text/vtt' });
+            const url = URL.createObjectURL(blob);
+            const oldTrack = document.getElementById('myTrack');
+            if (oldTrack) oldTrack.remove();
+            const newTrack = document.createElement('track');
+            newTrack.id = 'myTrack';
+            newTrack.kind = 'captions';
+            newTrack.srclang = 'en';
+            newTrack.src = url;
+            newTrack.default = true;
+            video.appendChild(newTrack);
+            setTimeout(() => { player.captions.toggled = true; }, 200);
+          }
           
           if (serverMemory.isPlaying) {
             intendedState = 'playing';
