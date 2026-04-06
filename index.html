@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Anime Watch Party</title>
+  <title>Watch Party</title>
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css" />
@@ -20,8 +20,11 @@
     .sidebar { width: 320px; background: #222; border-radius: 10px; padding: 15px; box-shadow: 0px 0px 15px rgba(0,0,0,0.5); max-height: 600px; overflow-y: auto; }
     .sidebar h2 { margin-top: 0; font-size: 20px; border-bottom: 2px solid #ff4757; padding-bottom: 10px; }
     
+    .direct-link-box { background: #333; padding: 10px; border-radius: 5px; margin-bottom: 20px; border: 1px solid #444; }
+    .direct-link-box p { margin: 0 0 10px 0; font-size: 14px; font-weight: bold; color: #00ff00; }
+    
     .search-box { display: flex; gap: 5px; margin-bottom: 15px; }
-    .search-box input { flex-grow: 1; padding: 10px; border-radius: 5px; border: none; background: #333; color: white; }
+    .search-box input { flex-grow: 1; padding: 10px; border-radius: 5px; border: none; background: #444; color: white; }
     .search-box button { padding: 10px; background: #ff4757; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
     
     .anime-result { display: flex; gap: 10px; background: #333; padding: 10px; margin-bottom: 10px; border-radius: 5px; cursor: pointer; transition: 0.2s; text-align: left; border: 1px solid transparent; }
@@ -56,13 +59,22 @@
     </div>
 
     <div class="sidebar">
-      <h2>Search</h2>
+      
+      <div class="direct-link-box">
+        <p>Direct Video Link</p>
+        <div class="search-box">
+          <input type="text" id="direct-input" placeholder="Paste .mp4 or .m3u8 link...">
+          <button id="direct-btn">Play</button>
+        </div>
+      </div>
+
+      <h2>🔍 Search Anime</h2>
       <div class="search-box">
         <input type="text" id="search-input" placeholder="e.g. Naruto, Bleach...">
         <button id="search-btn">Search</button>
       </div>
       <div id="results-container">
-        <p style="color: #aaa; font-size: 14px; text-align: center;">Search for an anime to start watching!</p>
+        <p style="color: #aaa; font-size: 14px; text-align: center;">Search to start watching!</p>
       </div>
     </div>
   </div>
@@ -74,7 +86,7 @@
     </label>
   </div>
 
-<script>
+  <script>
     const serverUrl = 'https://watch-party-server-bjmb.onrender.com'; 
     const socket = io(serverUrl);
     const video = document.getElementById('myVideo');
@@ -87,6 +99,8 @@
     const searchInput = document.getElementById('search-input');
     const searchBtn = document.getElementById('search-btn');
     const resultsContainer = document.getElementById('results-container');
+    const directInput = document.getElementById('direct-input');
+    const directBtn = document.getElementById('direct-btn');
 
     let player; 
     let hls; 
@@ -108,97 +122,80 @@
 
     document.getElementById('room-title').innerText = `Room: ${roomId}`;
 
+    directBtn.addEventListener('click', () => {
+      const url = directInput.value.trim();
+      if (!url) return;
+      if (!hasJoined) return alert("Please click Join Room first!");
+      
+      socket.emit('change_video', url);
+      directInput.value = ''; 
+    });
+
     const AMVSTR_URL = 'https://api.amvstr.me/api/v2';
 
     searchBtn.addEventListener('click', async () => {
       const query = searchInput.value.trim();
       if (!query) return;
-
       resultsContainer.innerHTML = '<p style="color: yellow; text-align: center;">Searching...</p>';
-
       try {
         const response = await fetch(`${AMVSTR_URL}/search?q=${query}`);
         const data = await response.json();
-
         resultsContainer.innerHTML = ''; 
-
         if (!data.results || data.results.length === 0) {
           resultsContainer.innerHTML = '<p style="color: red; text-align: center;">No anime found.</p>';
           return;
         }
-
         data.results.forEach(anime => {
           const div = document.createElement('div');
           div.className = 'anime-result';
-          
           const imageUrl = anime.coverImage.large || anime.coverImage.extraLarge;
           const title = anime.title.english || anime.title.romaji;
-
           div.innerHTML = `
             <img src="${imageUrl}" alt="poster">
-            <div>
-              <h4>${title}</h4>
-              <p>${anime.format || 'TV'}</p>
-            </div>
+            <div><h4>${title}</h4><p>${anime.format || 'TV'}</p></div>
           `;
-          
           div.addEventListener('click', () => loadAnimeEpisode(anime.id, title));
           resultsContainer.appendChild(div);
         });
-
       } catch (error) {
-        resultsContainer.innerHTML = '<p style="color: red; text-align: center;">Error fetching data. API might be busy.</p>';
-        console.error(error);
+        resultsContainer.innerHTML = '<p style="color: red; text-align: center;">Error fetching data. API is down.</p>';
       }
-    });
-
-    searchInput.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') searchBtn.click();
     });
 
     async function loadAnimeEpisode(animeId, animeTitle) {
       if (!hasJoined) return alert("Please click Join Room first!");
-      
       resultsContainer.innerHTML = '<p style="color: yellow; text-align: center;">Fetching Episode 1...</p>';
-
       try {
         const infoRes = await fetch(`${AMVSTR_URL}/info/${animeId}`);
         const infoData = await infoRes.json();
-
-        if (!infoData.episodes || infoData.episodes.length === 0) {
-          return alert("No episodes found for this anime.");
-        }
-
         const firstEpisodeId = infoData.episodes[0].id;
-
         const watchRes = await fetch(`${AMVSTR_URL}/stream/${firstEpisodeId}`);
         const watchData = await watchRes.json();
-
         const streamLink = watchData.stream.multi.main.url;
-
         socket.emit('change_video', streamLink);
-        
         resultsContainer.innerHTML = `<p style="color: #00ff00; text-align: center;">Now Playing: ${animeTitle}</p>`;
-
       } catch (error) {
-        alert("Failed to load episode. The provider might be down.");
-        console.error(error);
+        alert("Failed to load episode. The provider is down.");
       }
     }
 
     function loadVideo(url) {
       if (hls) hls.destroy(); 
       
-      if (Hls.isSupported()) {
+      if (url.includes('.mp4') || url.includes('video-proxy')) {
+        video.src = url;
+        if (!player) {
+          player = new Plyr(video, { controls: ['play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'captions', 'settings', 'fullscreen'], settings: ['quality', 'speed'] });
+          setupSyncLogic();
+        }
+      } 
+      else if (Hls.isSupported()) {
         hls = new Hls();
         hls.loadSource(url);
         hls.attachMedia(video);
         hls.on(Hls.Events.MANIFEST_PARSED, function() {
           if (!player) {
-            player = new Plyr(video, {
-              controls: ['play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'captions', 'settings', 'fullscreen'],
-              settings: ['quality', 'speed']
-            });
+            player = new Plyr(video, { controls: ['play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'captions', 'settings', 'fullscreen'], settings: ['quality', 'speed'] });
             setupSyncLogic(); 
           }
         });
@@ -208,13 +205,10 @@
     socket.on('sync_new_video', (newUrl) => {
       statusText.innerText = 'Loading new video...';
       statusText.style.color = 'yellow';
-      
       ignoreNextSeek = true;
       isGracePeriod = true;
       intendedState = 'playing';
-      
       loadVideo(newUrl); 
-      
       setTimeout(() => { if(player) player.play(); }, 1000);
     });
 
@@ -235,6 +229,7 @@
       const newTrack = document.createElement('track');
       newTrack.id = 'myTrack';
       newTrack.kind = 'captions';
+      newTrack.label = 'Custom Subtitles';
       newTrack.srclang = 'en';
       newTrack.src = url;
       newTrack.default = true;
