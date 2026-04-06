@@ -24,14 +24,16 @@
 </head>
 <body>
 
-  <h1>Watch Party</h1>
+  <h1> Watch Party</h1>
   <p id="status">Connecting to Sync Server...</p>
 
   <div class="player-wrapper">
     <div id="join-overlay">
       <button id="join-btn">Click to Join Room</button>
     </div>
-    <video id="myVideo" controls crossorigin playsinline></video>
+    <video id="myVideo" controls crossorigin playsinline>
+      <track id="myTrack" kind="captions" label="Custom Subtitles" srclang="en" src="" default>
+    </video>
   </div>
 
   <div class="tools-container">
@@ -42,20 +44,22 @@
   </div>
 
   <script>
-    const serverUrl = 'https://watch-party-server-bjmb.onrender.com'; 
+    const serverUrl = 'PASTE_YOUR_RENDER_URL_HERE'; 
     const socket = io(serverUrl);
     const video = document.getElementById('myVideo');
+    const track = document.getElementById('myTrack'); 
     const statusText = document.getElementById('status');
     const joinOverlay = document.getElementById('join-overlay');
     const joinBtn = document.getElementById('join-btn');
     const subtitleUpload = document.getElementById('subtitle-upload');
 
     let player; 
-    let isExternalCommand = false; 
-    let intendedState = 'paused';
+    let hasJoined = false; 
     let bufferTimeout;
     
-    let hasJoined = false; 
+    let intendedState = 'paused';
+    let intendedSpeed = 1;
+    let ignoreNextSeek = false;
 
     const videoSrc = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8';
     
@@ -71,75 +75,84 @@
         setupSyncLogic(); 
       });
     }
-
     subtitleUpload.addEventListener('change', function(event) {
       const file = event.target.files[0];
       if (file) {
-        const fileUrl = URL.createObjectURL(file);
-        
-        const track = document.createElement('track');
-        track.kind = 'captions';
-        track.label = 'Custom Subtitles';
-        track.srclang = 'en';
-        track.src = fileUrl;
-        track.default = true;
-        
-        video.appendChild(track);
-        
-        alert("Subtitles loaded! Click the 'CC' button on the player to turn them on.");
+        const reader = new FileReader();
+        reader.onload = function(e) {
+          const vttText = e.target.result;
+          socket.emit('upload_subtitle', vttText);
+        };
+        reader.readAsText(file);
       }
     });
 
+    socket.on('sync_subtitle', (vttText) => {
+      const blob = new Blob([vttText], { type: 'text/vtt' });
+      const url = URL.createObjectURL(blob);
+      track.src = url; 
+      alert("Subtitles updated! Click the 'CC' button to toggle them.");
+    });
     function setupSyncLogic() {
       
       player.on('play', () => {
-        if (hasJoined && !isExternalCommand) socket.emit('play_video', player.currentTime);
-        isExternalCommand = false;
+        if (hasJoined && intendedState !== 'playing') {
+          socket.emit('play_video', player.currentTime);
+        }
       });
 
       player.on('pause', () => {
-        if (hasJoined && !isExternalCommand) socket.emit('pause_video', player.currentTime);
-        isExternalCommand = false;
+        if (hasJoined && intendedState !== 'paused') {
+          socket.emit('pause_video', player.currentTime);
+        }
       });
 
       player.on('seeked', () => {
-        if (hasJoined && !isExternalCommand) socket.emit('seek_video', player.currentTime);
-        isExternalCommand = false;
+        if (hasJoined) {
+          if (ignoreNextSeek) {
+            ignoreNextSeek = false; 
+          } else {
+            socket.emit('seek_video', player.currentTime);
+          }
+        }
       });
 
       player.on('ratechange', () => {
-        if (hasJoined && !isExternalCommand) socket.emit('change_speed', player.speed);
-        isExternalCommand = false;
+        if (hasJoined && player.speed !== intendedSpeed) {
+          socket.emit('change_speed', player.speed);
+        }
       });
 
       socket.on('sync_play', (time) => { 
         intendedState = 'playing';
-        isExternalCommand = true; 
-        if (Math.abs(player.currentTime - time) > 1) player.currentTime = time; 
+        if (Math.abs(player.currentTime - time) > 1) {
+          ignoreNextSeek = true;
+          player.currentTime = time; 
+        }
         player.play(); 
       });
       
       socket.on('sync_pause', (time) => { 
         intendedState = 'paused';
-        isExternalCommand = true; 
-        if (Math.abs(player.currentTime - time) > 1) player.currentTime = time; 
+        if (Math.abs(player.currentTime - time) > 1) {
+          ignoreNextSeek = true;
+          player.currentTime = time; 
+        }
         player.pause(); 
       });
       
       socket.on('sync_seek', (time) => { 
-        isExternalCommand = true; 
+        ignoreNextSeek = true;
         player.currentTime = time; 
       });
 
       socket.on('sync_speed', (newSpeed) => {
-        isExternalCommand = true;
+        intendedSpeed = newSpeed;
         player.speed = newSpeed;
       });
 
       player.on('waiting', () => {
-        if(hasJoined) {
-          bufferTimeout = setTimeout(() => { socket.emit('i_am_buffering'); }, 300);
-        }
+        if(hasJoined) bufferTimeout = setTimeout(() => { socket.emit('i_am_buffering'); }, 300);
       });
 
       player.on('playing', () => clearTimeout(bufferTimeout));
@@ -150,7 +163,6 @@
       });
 
       socket.on('force_wait', () => { 
-        isExternalCommand = true;
         player.pause(); 
         statusText.innerText = 'Waiting for a friend to buffer...';
         statusText.style.color = 'orange';
@@ -159,12 +171,10 @@
       socket.on('clear_wait', () => { 
         statusText.innerText = '🟢 Synced and Ready!';
         statusText.style.color = '#00ff00';
-        if (intendedState === 'playing') {
-          isExternalCommand = true;
-          player.play();
-        }
+        if (intendedState === 'playing') player.play();
       });
     }
+
     socket.on('connect', () => {
       statusText.innerText = '🟢 Connected! Click Join.';
       statusText.style.color = '#00ff00';
@@ -180,14 +190,22 @@
 
     socket.on('catch_up', (serverMemory) => {
       if(player) {
-        isExternalCommand = true;
+        ignoreNextSeek = true;
         player.currentTime = serverMemory.time;
-        player.speed = serverMemory.speed; 
+        
+        intendedSpeed = serverMemory.speed || 1;
+        player.speed = intendedSpeed;
+
+        if (serverMemory.subtitle) {
+          const blob = new Blob([serverMemory.subtitle], { type: 'text/vtt' });
+          track.src = URL.createObjectURL(blob);
+        }
         
         if (serverMemory.isPlaying) {
           intendedState = 'playing';
           player.play().then(() => { hasJoined = true; }); 
         } else {
+          intendedState = 'paused';
           hasJoined = true; 
         }
       }
