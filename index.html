@@ -39,7 +39,7 @@
   <div class="tools-container">
     <label class="custom-file-upload">
       <input type="file" id="subtitle-upload" accept=".vtt,.srt">
-      Upload Custom Subtitles
+      Upload Custom Subtitles (.vtt)
     </label>
   </div>
 
@@ -47,6 +47,7 @@
     const serverUrl = 'https://watch-party-server-bjmb.onrender.com'; 
     const socket = io(serverUrl);
     const video = document.getElementById('myVideo');
+    const track = document.getElementById('myTrack');
     const statusText = document.getElementById('status');
     const joinOverlay = document.getElementById('join-overlay');
     const joinBtn = document.getElementById('join-btn');
@@ -74,13 +75,12 @@
         setupSyncLogic(); 
       });
     }
+
     subtitleUpload.addEventListener('change', function(event) {
       const file = event.target.files[0];
       if (file) {
         const reader = new FileReader();
-        reader.onload = function(e) {
-          socket.emit('upload_subtitle', e.target.result); 
-        };
+        reader.onload = function(e) { socket.emit('upload_subtitle', e.target.result); };
         reader.readAsText(file);
       }
     });
@@ -88,10 +88,8 @@
     socket.on('sync_subtitle', (vttText) => {
       const blob = new Blob([vttText], { type: 'text/vtt' });
       const url = URL.createObjectURL(blob);
-      
       const oldTrack = document.getElementById('myTrack');
       if (oldTrack) oldTrack.remove();
-
       const newTrack = document.createElement('track');
       newTrack.id = 'myTrack';
       newTrack.kind = 'captions';
@@ -99,18 +97,12 @@
       newTrack.srclang = 'en';
       newTrack.src = url;
       newTrack.default = true;
-      
       video.appendChild(newTrack);
-
-      setTimeout(() => {
-        if(player) player.captions.toggled = true;
-      }, 200);
-
+      setTimeout(() => { if(player) player.captions.toggled = true; }, 200);
       alert("Subtitles updated and turned on!");
     });
 
     function setupSyncLogic() {
-      
       player.on('play', () => {
         if (hasJoined && intendedState !== 'playing') socket.emit('play_video', player.currentTime);
       });
@@ -132,7 +124,7 @@
 
       socket.on('sync_play', (time) => { 
         intendedState = 'playing';
-        if (Math.abs(player.currentTime - time) > 1) {
+        if (Math.abs(player.currentTime - time) > 1.5) {
           ignoreNextSeek = true;
           player.currentTime = time; 
         }
@@ -141,7 +133,7 @@
       
       socket.on('sync_pause', (time) => { 
         intendedState = 'paused';
-        if (Math.abs(player.currentTime - time) > 1) {
+        if (Math.abs(player.currentTime - time) > 1.5) {
           ignoreNextSeek = true;
           player.currentTime = time; 
         }
@@ -180,6 +172,15 @@
         statusText.style.color = '#00ff00';
         if (intendedState === 'playing') player.play();
       });
+
+      socket.on('auto_correction', (officialServerTime) => {
+        if (hasJoined && intendedState === 'playing') {
+          if (Math.abs(player.currentTime - officialServerTime) > 1.5) {
+            ignoreNextSeek = true;
+            player.currentTime = officialServerTime; 
+          }
+        }
+      });
     }
 
     socket.on('connect', () => {
@@ -199,7 +200,6 @@
       if(player) {
         ignoreNextSeek = true;
         player.currentTime = serverMemory.time;
-        
         intendedSpeed = serverMemory.speed || 1;
         player.speed = intendedSpeed;
 
@@ -227,6 +227,7 @@
         }
       }
     });
+
     setInterval(() => {
       if (hasJoined && intendedState === 'playing' && player) {
         socket.emit('heartbeat_time', player.currentTime);
