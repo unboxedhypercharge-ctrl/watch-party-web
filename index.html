@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Anime Watch Party</title>
+  <title>Watch Party</title>
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css" />
@@ -45,7 +45,7 @@
 </head>
 <body>
 
-  <h1 id="room-title">🍿 Room: Loading...</h1>
+  <h1 id="room-title">Room: Loading...</h1>
   <p id="status">Connecting to Sync Server...</p>
 
   <div class="main-layout">
@@ -61,20 +61,20 @@
     <div class="sidebar">
       
       <div class="direct-link-box">
-        <p>🔗 Direct Link or GDrive ID</p>
+        <p>Direct Link or GDrive ID</p>
         <div class="search-box">
           <input type="text" id="direct-input" placeholder="Paste URL or Drive ID...">
           <button id="direct-btn">Play</button>
         </div>
       </div>
 
-      <h2>🔍 Search Anime</h2>
+      <h2>Search</h2>
       <div class="search-box">
         <input type="text" id="search-input" placeholder="e.g. Naruto, Bleach...">
         <button id="search-btn">Search</button>
       </div>
       <div id="results-container">
-        <p style="color: #aaa; font-size: 14px; text-align: center;">Search for an anime to start watching!</p>
+        <p style="color: #aaa; font-size: 14px; text-align: center;">Search to start watching!</p>
       </div>
     </div>
   </div>
@@ -240,7 +240,7 @@
       newTrack.default = true;
       video.appendChild(newTrack);
       setTimeout(() => { if(player) player.captions.toggled = true; }, 200);
-      alert("💬 Subtitles updated and turned on!");
+      alert("Subtitles updated and turned on!");
     });
 
     function setupSyncLogic() {
