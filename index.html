@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Watch Party</title>
+  <title>Anime Watch Party</title>
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css" />
@@ -45,7 +45,7 @@
 </head>
 <body>
 
-  <h1 id="room-title">Room: Loading...</h1>
+  <h1 id="room-title">🍿 Room: Loading...</h1>
   <p id="status">Connecting to Sync Server...</p>
 
   <div class="main-layout">
@@ -61,9 +61,9 @@
     <div class="sidebar">
       
       <div class="direct-link-box">
-        <p>Direct Video Link</p>
+        <p>🔗 Direct Link or GDrive ID</p>
         <div class="search-box">
-          <input type="text" id="direct-input" placeholder="Paste .mp4 or .m3u8 link...">
+          <input type="text" id="direct-input" placeholder="Paste URL or Drive ID...">
           <button id="direct-btn">Play</button>
         </div>
       </div>
@@ -74,7 +74,7 @@
         <button id="search-btn">Search</button>
       </div>
       <div id="results-container">
-        <p style="color: #aaa; font-size: 14px; text-align: center;">Search to start watching!</p>
+        <p style="color: #aaa; font-size: 14px; text-align: center;">Search for an anime to start watching!</p>
       </div>
     </div>
   </div>
@@ -123,11 +123,17 @@
     document.getElementById('room-title').innerText = `Room: ${roomId}`;
 
     directBtn.addEventListener('click', () => {
-      const url = directInput.value.trim();
-      if (!url) return;
+      let inputVal = directInput.value.trim();
+      if (!inputVal) return;
       if (!hasJoined) return alert("Please click Join Room first!");
       
-      socket.emit('change_video', url);
+      let finalUrl = inputVal;
+      
+      if (!inputVal.startsWith('http')) {
+        finalUrl = `https://video-proxy.owye2002.workers.dev/?fileId=${inputVal}`;
+      }
+
+      socket.emit('change_video', finalUrl);
       directInput.value = ''; 
     });
 
@@ -201,7 +207,6 @@
         });
       }
     }
-
     socket.on('sync_new_video', (newUrl) => {
       statusText.innerText = 'Loading new video...';
       statusText.style.color = 'yellow';
@@ -235,7 +240,7 @@
       newTrack.default = true;
       video.appendChild(newTrack);
       setTimeout(() => { if(player) player.captions.toggled = true; }, 200);
-      alert("Subtitles updated and turned on!");
+      alert("💬 Subtitles updated and turned on!");
     });
 
     function setupSyncLogic() {
@@ -330,10 +335,19 @@
 
     joinBtn.addEventListener('click', () => {
       joinOverlay.style.display = 'none';
-      player.play().then(() => { 
-        player.pause(); 
+      hasJoined = true; 
+
+      if (player) {
+        player.play().then(() => { 
+          player.pause(); 
+          socket.emit('request_catch_up');
+        }).catch(e => {
+          console.log("Autoplay blocked, but continuing...", e);
+          socket.emit('request_catch_up');
+        });
+      } else {
         socket.emit('request_catch_up');
-      }).catch(e => console.log(e));
+      }
     });
 
     socket.on('catch_up', (serverMemory) => {
@@ -365,10 +379,9 @@
           
           if (serverMemory.isPlaying) {
             intendedState = 'playing';
-            player.play().then(() => { hasJoined = true; }); 
+            player.play(); 
           } else {
             intendedState = 'paused';
-            hasJoined = true; 
           }
         }
       }, 500); 
