@@ -60,6 +60,8 @@
     let intendedState = 'paused';
     let intendedSpeed = 1;
     let ignoreNextSeek = false;
+    
+    let isGracePeriod = true; 
 
     const videoSrc = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8';
     
@@ -151,14 +153,19 @@
       });
 
       player.on('waiting', () => {
-        if(hasJoined) bufferTimeout = setTimeout(() => { socket.emit('i_am_buffering'); }, 300);
+        if(hasJoined && !isGracePeriod) {
+          bufferTimeout = setTimeout(() => { socket.emit('i_am_buffering'); }, 1000); 
+        }
       });
 
-      player.on('playing', () => clearTimeout(bufferTimeout));
+      player.on('playing', () => {
+        clearTimeout(bufferTimeout);
+        isGracePeriod = false; 
+      });
       
       player.on('canplay', () => {
         clearTimeout(bufferTimeout);
-        if(hasJoined) socket.emit('buffer_resolved'); 
+        if(hasJoined && !isGracePeriod) socket.emit('buffer_resolved'); 
       });
 
       socket.on('force_wait', () => { 
@@ -199,6 +206,8 @@
     socket.on('catch_up', (serverMemory) => {
       if(player) {
         ignoreNextSeek = true;
+        isGracePeriod = true; 
+        
         player.currentTime = serverMemory.time;
         intendedSpeed = serverMemory.speed || 1;
         player.speed = intendedSpeed;
