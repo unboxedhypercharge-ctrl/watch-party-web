@@ -43,7 +43,7 @@
     </label>
   </div>
 
-  <script>
+<script>
     const serverUrl = 'https://watch-party-server-bjmb.onrender.com'; 
     const socket = io(serverUrl);
     const video = document.getElementById('myVideo');
@@ -56,12 +56,21 @@
     let player; 
     let hasJoined = false; 
     let bufferTimeout;
-    
     let intendedState = 'paused';
     let intendedSpeed = 1;
     let ignoreNextSeek = false;
-    
     let isGracePeriod = true; 
+
+    const urlParams = new URLSearchParams(window.location.search);
+    let roomId = urlParams.get('room');
+
+    if (!roomId) {
+      roomId = prompt("Enter a Room Name to join or create:");
+      if (!roomId) roomId = "default-room"; 
+      window.location.search = `?room=${roomId}`; 
+    }
+
+    document.querySelector('h1').innerText = `Room: ${roomId}`;
 
     const videoSrc = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8';
     
@@ -179,18 +188,10 @@
         statusText.style.color = '#00ff00';
         if (intendedState === 'playing') player.play();
       });
-
-      socket.on('auto_correction', (officialServerTime) => {
-        if (hasJoined && intendedState === 'playing') {
-          if (Math.abs(player.currentTime - officialServerTime) > 1.5) {
-            ignoreNextSeek = true;
-            player.currentTime = officialServerTime; 
-          }
-        }
-      });
     }
 
     socket.on('connect', () => {
+      socket.emit('join_room', roomId);
       statusText.innerText = '🟢 Connected! Click Join.';
       statusText.style.color = '#00ff00';
     });
