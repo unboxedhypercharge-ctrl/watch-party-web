@@ -24,7 +24,7 @@
 </head>
 <body>
 
-  <h1> Watch Party</h1>
+  <h1>Watch Party</h1>
   <p id="status">Connecting to Sync Server...</p>
 
   <div class="player-wrapper">
@@ -39,7 +39,7 @@
   <div class="tools-container">
     <label class="custom-file-upload">
       <input type="file" id="subtitle-upload" accept=".vtt,.srt">
-       Upload Custom Subtitles (.vtt)
+      Upload Custom Subtitles
     </label>
   </div>
 
@@ -47,7 +47,6 @@
     const serverUrl = 'https://watch-party-server-bjmb.onrender.com'; 
     const socket = io(serverUrl);
     const video = document.getElementById('myVideo');
-    const track = document.getElementById('myTrack'); 
     const statusText = document.getElementById('status');
     const joinOverlay = document.getElementById('join-overlay');
     const joinBtn = document.getElementById('join-btn');
@@ -80,8 +79,7 @@
       if (file) {
         const reader = new FileReader();
         reader.onload = function(e) {
-          const vttText = e.target.result;
-          socket.emit('upload_subtitle', vttText);
+          socket.emit('upload_subtitle', e.target.result); 
         };
         reader.readAsText(file);
       }
@@ -90,37 +88,46 @@
     socket.on('sync_subtitle', (vttText) => {
       const blob = new Blob([vttText], { type: 'text/vtt' });
       const url = URL.createObjectURL(blob);
-      track.src = url; 
-      alert("Subtitles updated! Click the 'CC' button to toggle them.");
+      
+      const oldTrack = document.getElementById('myTrack');
+      if (oldTrack) oldTrack.remove();
+
+      const newTrack = document.createElement('track');
+      newTrack.id = 'myTrack';
+      newTrack.kind = 'captions';
+      newTrack.label = 'Custom Subtitles';
+      newTrack.srclang = 'en';
+      newTrack.src = url;
+      newTrack.default = true;
+      
+      video.appendChild(newTrack);
+
+      setTimeout(() => {
+        if(player) player.captions.toggled = true;
+      }, 200);
+
+      alert("Subtitles updated and turned on!");
     });
+
     function setupSyncLogic() {
       
       player.on('play', () => {
-        if (hasJoined && intendedState !== 'playing') {
-          socket.emit('play_video', player.currentTime);
-        }
+        if (hasJoined && intendedState !== 'playing') socket.emit('play_video', player.currentTime);
       });
 
       player.on('pause', () => {
-        if (hasJoined && intendedState !== 'paused') {
-          socket.emit('pause_video', player.currentTime);
-        }
+        if (hasJoined && intendedState !== 'paused') socket.emit('pause_video', player.currentTime);
       });
 
       player.on('seeked', () => {
         if (hasJoined) {
-          if (ignoreNextSeek) {
-            ignoreNextSeek = false; 
-          } else {
-            socket.emit('seek_video', player.currentTime);
-          }
+          if (ignoreNextSeek) ignoreNextSeek = false; 
+          else socket.emit('seek_video', player.currentTime);
         }
       });
 
       player.on('ratechange', () => {
-        if (hasJoined && player.speed !== intendedSpeed) {
-          socket.emit('change_speed', player.speed);
-        }
+        if (hasJoined && player.speed !== intendedSpeed) socket.emit('change_speed', player.speed);
       });
 
       socket.on('sync_play', (time) => { 
@@ -198,7 +205,17 @@
 
         if (serverMemory.subtitle) {
           const blob = new Blob([serverMemory.subtitle], { type: 'text/vtt' });
-          track.src = URL.createObjectURL(blob);
+          const url = URL.createObjectURL(blob);
+          const oldTrack = document.getElementById('myTrack');
+          if (oldTrack) oldTrack.remove();
+          const newTrack = document.createElement('track');
+          newTrack.id = 'myTrack';
+          newTrack.kind = 'captions';
+          newTrack.srclang = 'en';
+          newTrack.src = url;
+          newTrack.default = true;
+          video.appendChild(newTrack);
+          setTimeout(() => { player.captions.toggled = true; }, 200);
         }
         
         if (serverMemory.isPlaying) {
@@ -210,6 +227,11 @@
         }
       }
     });
+    setInterval(() => {
+      if (hasJoined && intendedState === 'playing' && player) {
+        socket.emit('heartbeat_time', player.currentTime);
+      }
+    }, 2000);
 
   </script>
 </body>
