@@ -3,21 +3,18 @@
 <head>
   <title>Watch Party</title>
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <style>
     body { font-family: Arial; background: #111; color: white; text-align: center; margin: 0; padding: 20px; }
     .video-container { position: relative; width: 80%; max-width: 1000px; margin: 0 auto; }
-    
     video { width: 100%; border: 3px solid #007bff; border-radius: 10px; background: black; }
-    
     #status { color: yellow; font-size: 18px; margin-bottom: 10px; }
-
     #join-overlay {
       position: absolute; top: 0; left: 0; width: 100%; height: 100%;
       background: rgba(0,0,0,0.9); display: flex; justify-content: center; align-items: center;
       z-index: 200; border-radius: 10px;
     }
     #join-btn { padding: 20px 40px; font-size: 24px; background: #007bff; color: white; border: none; border-radius: 10px; cursor: pointer; }
-    #join-btn:hover { background: #0056b3; }
   </style>
 </head>
 <body>
@@ -29,10 +26,7 @@
     <div id="join-overlay">
       <button id="join-btn">Click to Join Room</button>
     </div>
-
-    <video id="myVideo" controls preload="auto">
-      <source src="https://video-proxy.owye2002.workers.dev/?fileId=1Uzg6vNOETRvzJF7176cWxHpZp8N2SdmJ" type="video/mp4">
-    </video>
+    <video id="myVideo" controls></video>
   </div>
 
   <script>
@@ -45,8 +39,20 @@
 
     let isExternalCommand = false;
 
+    const videoSrc = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8';
+
+    if (Hls.isSupported()) {
+      const hls = new Hls();
+      hls.loadSource(videoSrc);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, function() {
+        console.log("Video loaded and ready to play!");
+      });
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = videoSrc;
+    }
     joinBtn.addEventListener('click', () => {
-      joinOverlay.style.display = 'none'; 
+      joinOverlay.style.display = 'none';
       video.play().then(() => { video.pause(); }).catch(e => console.log(e));
     });
 
@@ -58,9 +64,7 @@
     socket.on('catch_up', (serverMemory) => {
       isExternalCommand = true;
       video.currentTime = serverMemory.time;
-      if (serverMemory.isPlaying) {
-        video.play();
-      }
+      if (serverMemory.isPlaying) video.play();
     });
 
     video.addEventListener('play', () => {
@@ -68,9 +72,7 @@
       isExternalCommand = false;
     });
 
-   video.addEventListener('pause', () => {
-      statusText.innerText = 'Paused';
-      statusText.style.color = 'white';
+    video.addEventListener('pause', () => {
       if (!isExternalCommand) socket.emit('pause_video', video.currentTime);
       isExternalCommand = false;
     });
@@ -85,14 +87,11 @@
       statusText.style.color = 'orange';
       socket.emit('i_am_buffering');
     });
-   video.addEventListener('canplay', () => {
+
+    video.addEventListener('canplay', () => {
       statusText.innerText = '🟢 Synced and Ready!';
       statusText.style.color = '#00ff00';
       socket.emit('buffer_resolved'); 
-    });
-  video.addEventListener('playing', () => {
-      statusText.innerText = 'Playing';
-      statusText.style.color = '#00ff00';
     });
 
     socket.on('sync_play', (time) => { isExternalCommand = true; video.currentTime = time; video.play(); });
@@ -105,10 +104,12 @@
       statusText.innerText = 'Waiting for a friend to buffer...';
       statusText.style.color = 'orange';
     });
+    
     socket.on('clear_wait', () => { 
       statusText.innerText = '🟢 Synced and Ready!';
       statusText.style.color = '#00ff00';
     });
+
   </script>
 </body>
 </html>
