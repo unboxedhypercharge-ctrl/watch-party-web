@@ -8,15 +8,25 @@
   <script src="https://cdn.plyr.io/3.7.8/plyr.polyfilled.js"></script>
 
   <style>
-    body { font-family: Arial; background: #111; color: white; text-align: center; margin: 0; padding: 20px; }
-    .player-wrapper { position: relative; width: 80%; max-width: 1000px; margin: 0 auto; box-shadow: 0px 0px 30px rgba(0,0,0,0.9); border-radius: 10px; overflow: hidden; }
+    body { font-family: Arial; background: #111; color: white; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
     :root { --plyr-color-main: #ff4757; }
-    #status { color: yellow; font-size: 18px; margin-bottom: 10px; }
     
+    h1 { margin-top: 0; }
+    #status { color: yellow; font-size: 18px; margin-bottom: 20px; }
+
+    .main-layout { display: flex; width: 95%; max-width: 1400px; gap: 20px; align-items: flex-start; }
+    
+    .player-wrapper { flex-grow: 1; position: relative; box-shadow: 0px 0px 30px rgba(0,0,0,0.9); border-radius: 10px; overflow: hidden; }
+    
+    .sidebar { width: 300px; background: #222; border-radius: 10px; padding: 15px; box-shadow: 0px 0px 15px rgba(0,0,0,0.5); }
+    .sidebar h2 { margin-top: 0; font-size: 20px; border-bottom: 2px solid #ff4757; padding-bottom: 10px; }
+    .movie-btn { display: block; width: 100%; background: #333; color: white; border: 1px solid #444; padding: 15px; margin-bottom: 10px; border-radius: 5px; cursor: pointer; text-align: left; font-weight: bold; transition: 0.2s; }
+    .movie-btn:hover { background: #ff4757; border-color: #ff4757; }
+
     #join-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; justify-content: center; align-items: center; z-index: 200; }
     #join-btn { padding: 20px 40px; font-size: 24px; background: #ff4757; color: white; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; }
     
-    .tools-container { margin-top: 20px; display: flex; justify-content: center; gap: 10px; }
+    .tools-container { margin-top: 20px; display: flex; justify-content: center; gap: 10px; width: 100%; }
     .custom-file-upload { border: 2px solid #ff4757; color: #ff4757; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; transition: 0.3s; }
     .custom-file-upload:hover { background: #ff4757; color: white; }
     input[type="file"] { display: none; }
@@ -24,16 +34,25 @@
 </head>
 <body>
 
-  <h1>Watch Party</h1>
+  <h1 id="room-title">Room: Loading...</h1>
   <p id="status">Connecting to Sync Server...</p>
 
-  <div class="player-wrapper">
-    <div id="join-overlay">
-      <button id="join-btn">Click to Join Room</button>
+  <div class="main-layout">
+    <div class="player-wrapper">
+      <div id="join-overlay">
+        <button id="join-btn">Click to Join Room</button>
+      </div>
+      <video id="myVideo" controls crossorigin playsinline>
+        <track id="myTrack" kind="captions" label="Custom Subtitles" srclang="en" src="" default>
+      </video>
     </div>
-    <video id="myVideo" controls crossorigin playsinline>
-      <track id="myTrack" kind="captions" label="Custom Subtitles" srclang="en" src="" default>
-    </video>
+
+    <div class="sidebar">
+      <h2>Select Movie</h2>
+      <button class="movie-btn" data-url="https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8">🐰 Big Buck Bunny</button>
+      <button class="movie-btn" data-url="https://bitdash-a.akamaihd.net/content/sintel/hls/playlist.m3u8">🐉 Sintel (Dragon)</button>
+      <button class="movie-btn" data-url="https://bitdash-a.akamaihd.net/content/MI201109210084_1/m3u8s/f08e80da-bf1d-4e3d-8899-f0f6155f6efa.m3u8">🤖 Tears of Steel</button>
+    </div>
   </div>
 
   <div class="tools-container">
@@ -43,7 +62,7 @@
     </label>
   </div>
 
-<script>
+  <script>
     const serverUrl = 'https://watch-party-server-bjmb.onrender.com'; 
     const socket = io(serverUrl);
     const video = document.getElementById('myVideo');
@@ -54,6 +73,7 @@
     const subtitleUpload = document.getElementById('subtitle-upload');
 
     let player; 
+    let hls; 
     let hasJoined = false; 
     let bufferTimeout;
     let intendedState = 'paused';
@@ -70,22 +90,50 @@
       window.location.search = `?room=${roomId}`; 
     }
 
-    document.querySelector('h1').innerText = `Room: ${roomId}`;
+    document.getElementById('room-title').innerText = `Room: ${roomId}`;
 
-    const videoSrc = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8';
-    
-    if (Hls.isSupported()) {
-      const hls = new Hls();
-      hls.loadSource(videoSrc);
-      hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, function() {
-        player = new Plyr(video, {
-          controls: ['play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'captions', 'settings', 'fullscreen'],
-          settings: ['quality', 'speed']
+    function loadVideo(url) {
+      if (hls) {
+        hls.destroy(); 
+      }
+      
+      if (Hls.isSupported()) {
+        hls = new Hls();
+        hls.loadSource(url);
+        hls.attachMedia(video);
+        hls.on(Hls.Events.MANIFEST_PARSED, function() {
+          if (!player) {
+            player = new Plyr(video, {
+              controls: ['play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'captions', 'settings', 'fullscreen'],
+              settings: ['quality', 'speed']
+            });
+            setupSyncLogic(); 
+          }
         });
-        setupSyncLogic(); 
-      });
+      }
     }
+    const movieButtons = document.querySelectorAll('.movie-btn');
+    movieButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (!hasJoined) return alert("Please click Join Room first!");
+        const newUrl = btn.getAttribute('data-url');
+        socket.emit('change_video', newUrl); 
+      });
+    });
+
+    socket.on('sync_new_video', (newUrl) => {
+      statusText.innerText = 'Loading new video...';
+      statusText.style.color = 'yellow';
+      
+      ignoreNextSeek = true;
+      isGracePeriod = true;
+      intendedState = 'playing';
+      
+      loadVideo(newUrl); 
+      setTimeout(() => {
+        if(player) player.play();
+      }, 1000);
+    });
 
     subtitleUpload.addEventListener('change', function(event) {
       const file = event.target.files[0];
@@ -104,13 +152,12 @@
       const newTrack = document.createElement('track');
       newTrack.id = 'myTrack';
       newTrack.kind = 'captions';
-      newTrack.label = 'Custom Subtitles';
       newTrack.srclang = 'en';
       newTrack.src = url;
       newTrack.default = true;
       video.appendChild(newTrack);
       setTimeout(() => { if(player) player.captions.toggled = true; }, 200);
-      alert("Subtitles updated and turned on!");
+      alert("💬 Subtitles updated and turned on!");
     });
 
     function setupSyncLogic() {
@@ -141,10 +188,11 @@
         }
         player.play(); 
       });
+      
       socket.on('sync_pause', (time) => { 
         intendedState = 'paused';
         ignoreNextSeek = true;
-        player.currentTime = time;
+        player.currentTime = time; 
         player.pause(); 
       });
       
@@ -185,7 +233,7 @@
 
       socket.on('force_wait', () => { 
         player.pause(); 
-        statusText.innerText = 'Waiting for a friend to buffer...';
+        statusText.innerText = '⏸️ Waiting for a friend to buffer...';
         statusText.style.color = 'orange';
       });
       
@@ -204,44 +252,45 @@
 
     joinBtn.addEventListener('click', () => {
       joinOverlay.style.display = 'none';
-      player.play().then(() => { 
-        player.pause(); 
-        socket.emit('request_catch_up');
-      }).catch(e => console.log(e));
+      socket.emit('request_catch_up');
     });
 
     socket.on('catch_up', (serverMemory) => {
-      if(player) {
-        ignoreNextSeek = true;
-        isGracePeriod = true; 
-        
-        player.currentTime = serverMemory.time;
-        intendedSpeed = serverMemory.speed || 1;
-        player.speed = intendedSpeed;
+      ignoreNextSeek = true;
+      isGracePeriod = true; 
+      
+      loadVideo(serverMemory.videoUrl);
 
-        if (serverMemory.subtitle) {
-          const blob = new Blob([serverMemory.subtitle], { type: 'text/vtt' });
-          const url = URL.createObjectURL(blob);
-          const oldTrack = document.getElementById('myTrack');
-          if (oldTrack) oldTrack.remove();
-          const newTrack = document.createElement('track');
-          newTrack.id = 'myTrack';
-          newTrack.kind = 'captions';
-          newTrack.srclang = 'en';
-          newTrack.src = url;
-          newTrack.default = true;
-          video.appendChild(newTrack);
-          setTimeout(() => { player.captions.toggled = true; }, 200);
+      setTimeout(() => {
+        if(player) {
+          player.currentTime = serverMemory.time;
+          intendedSpeed = serverMemory.speed || 1;
+          player.speed = intendedSpeed;
+
+          if (serverMemory.subtitle) {
+            const blob = new Blob([serverMemory.subtitle], { type: 'text/vtt' });
+            const url = URL.createObjectURL(blob);
+            const oldTrack = document.getElementById('myTrack');
+            if (oldTrack) oldTrack.remove();
+            const newTrack = document.createElement('track');
+            newTrack.id = 'myTrack';
+            newTrack.kind = 'captions';
+            newTrack.srclang = 'en';
+            newTrack.src = url;
+            newTrack.default = true;
+            video.appendChild(newTrack);
+            setTimeout(() => { player.captions.toggled = true; }, 200);
+          }
+          
+          if (serverMemory.isPlaying) {
+            intendedState = 'playing';
+            player.play().then(() => { hasJoined = true; }); 
+          } else {
+            intendedState = 'paused';
+            hasJoined = true; 
+          }
         }
-        
-        if (serverMemory.isPlaying) {
-          intendedState = 'playing';
-          player.play().then(() => { hasJoined = true; }); 
-        } else {
-          intendedState = 'paused';
-          hasJoined = true; 
-        }
-      }
+      }, 500); 
     });
 
     setInterval(() => {
