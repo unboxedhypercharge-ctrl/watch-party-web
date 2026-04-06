@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Watch Party</title>
+  <title>Anime Watch Party</title>
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css" />
@@ -15,13 +15,21 @@
     #status { color: yellow; font-size: 18px; margin-bottom: 20px; }
 
     .main-layout { display: flex; width: 95%; max-width: 1400px; gap: 20px; align-items: flex-start; }
+    .player-wrapper { flex-grow: 1; position: relative; box-shadow: 0px 0px 30px rgba(0,0,0,0.9); border-radius: 10px; overflow: hidden; background: black; }
     
-    .player-wrapper { flex-grow: 1; position: relative; box-shadow: 0px 0px 30px rgba(0,0,0,0.9); border-radius: 10px; overflow: hidden; }
-    
-    .sidebar { width: 300px; background: #222; border-radius: 10px; padding: 15px; box-shadow: 0px 0px 15px rgba(0,0,0,0.5); }
+    .sidebar { width: 320px; background: #222; border-radius: 10px; padding: 15px; box-shadow: 0px 0px 15px rgba(0,0,0,0.5); max-height: 600px; overflow-y: auto; }
     .sidebar h2 { margin-top: 0; font-size: 20px; border-bottom: 2px solid #ff4757; padding-bottom: 10px; }
-    .movie-btn { display: block; width: 100%; background: #333; color: white; border: 1px solid #444; padding: 15px; margin-bottom: 10px; border-radius: 5px; cursor: pointer; text-align: left; font-weight: bold; transition: 0.2s; }
-    .movie-btn:hover { background: #ff4757; border-color: #ff4757; }
+    
+    .search-box { display: flex; gap: 5px; margin-bottom: 15px; }
+    .search-box input { flex-grow: 1; padding: 10px; border-radius: 5px; border: none; background: #333; color: white; }
+    .search-box button { padding: 10px; background: #ff4757; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
+    
+    .anime-result { display: flex; gap: 10px; background: #333; padding: 10px; margin-bottom: 10px; border-radius: 5px; cursor: pointer; transition: 0.2s; text-align: left; border: 1px solid transparent; }
+    .anime-result:hover { border-color: #ff4757; background: #444; }
+    .anime-result img { width: 50px; height: 70px; object-fit: cover; border-radius: 3px; }
+    .anime-result div { display: flex; flex-direction: column; justify-content: center; }
+    .anime-result h4 { margin: 0 0 5px 0; font-size: 14px; color: white; }
+    .anime-result p { margin: 0; font-size: 12px; color: #aaa; }
 
     #join-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; justify-content: center; align-items: center; z-index: 200; }
     #join-btn { padding: 20px 40px; font-size: 24px; background: #ff4757; color: white; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; }
@@ -48,10 +56,14 @@
     </div>
 
     <div class="sidebar">
-      <h2>Select Movie</h2>
-      <button class="movie-btn" data-url="https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8">🐰 Big Buck Bunny</button>
-      <button class="movie-btn" data-url="https://bitdash-a.akamaihd.net/content/sintel/hls/playlist.m3u8">🐉 Sintel (Dragon)</button>
-      <button class="movie-btn" data-url="https://bitdash-a.akamaihd.net/content/MI201109210084_1/m3u8s/f08e80da-bf1d-4e3d-8899-f0f6155f6efa.m3u8">🤖 Tears of Steel</button>
+      <h2>🔍 Search Anime</h2>
+      <div class="search-box">
+        <input type="text" id="search-input" placeholder="e.g. Naruto, Bleach...">
+        <button id="search-btn">Search</button>
+      </div>
+      <div id="results-container">
+        <p style="color: #aaa; font-size: 14px; text-align: center;">Search for an anime to start watching!</p>
+      </div>
     </div>
   </div>
 
@@ -71,6 +83,10 @@
     const joinOverlay = document.getElementById('join-overlay');
     const joinBtn = document.getElementById('join-btn');
     const subtitleUpload = document.getElementById('subtitle-upload');
+
+    const searchInput = document.getElementById('search-input');
+    const searchBtn = document.getElementById('search-btn');
+    const resultsContainer = document.getElementById('results-container');
 
     let player; 
     let hls; 
@@ -92,10 +108,81 @@
 
     document.getElementById('room-title').innerText = `Room: ${roomId}`;
 
-    function loadVideo(url) {
-      if (hls) {
-        hls.destroy(); 
+    const CONSUMET_URL = 'https://api.consumet.org/anime/gogoanime';
+
+    searchBtn.addEventListener('click', async () => {
+      const query = searchInput.value.trim();
+      if (!query) return;
+
+      resultsContainer.innerHTML = '<p style="color: yellow; text-align: center;">Searching...</p>';
+
+      try {
+        const response = await fetch(`${CONSUMET_URL}/${query}`);
+        const data = await response.json();
+
+        resultsContainer.innerHTML = ''; 
+
+        if (data.results.length === 0) {
+          resultsContainer.innerHTML = '<p style="color: red; text-align: center;">No anime found.</p>';
+          return;
+        }
+
+        data.results.forEach(anime => {
+          const div = document.createElement('div');
+          div.className = 'anime-result';
+          div.innerHTML = `
+            <img src="${anime.image}" alt="poster">
+            <div>
+              <h4>${anime.title}</h4>
+              <p>${anime.releaseDate || 'Unknown Year'}</p>
+            </div>
+          `;
+          
+          div.addEventListener('click', () => loadAnimeEpisode(anime.id));
+          resultsContainer.appendChild(div);
+        });
+
+      } catch (error) {
+        resultsContainer.innerHTML = '<p style="color: red; text-align: center;">Error fetching data.</p>';
+        console.error(error);
       }
+    });
+
+    searchInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') searchBtn.click();
+    });
+
+    async function loadAnimeEpisode(animeId) {
+      if (!hasJoined) return alert("Please click Join Room first!");
+      
+      resultsContainer.innerHTML = '<p style="color: yellow; text-align: center;">Fetching Episode 1...</p>';
+
+      try {
+        const infoRes = await fetch(`${CONSUMET_URL}/info/${animeId}`);
+        const infoData = await infoRes.json();
+
+        if (!infoData.episodes || infoData.episodes.length === 0) {
+          return alert("No episodes found for this anime.");
+        }
+
+        const firstEpisodeId = infoData.episodes[0].id;
+
+        const watchRes = await fetch(`${CONSUMET_URL}/watch/${firstEpisodeId}`);
+        const watchData = await watchRes.json();
+
+        const streamLink = watchData.sources.find(s => s.quality === 'default' || s.quality === 'auto').url;
+
+        socket.emit('change_video', streamLink);
+        
+        resultsContainer.innerHTML = `<p style="color: #00ff00; text-align: center;">Now Playing: ${infoData.title}</p>`;
+
+      } catch (error) {
+        alert("Failed to load episode. The provider might be down.");
+        console.error(error);
+      }
+    }
+    function loadVideo(url) {
+      if (hls) hls.destroy(); 
       
       if (Hls.isSupported()) {
         hls = new Hls();
@@ -112,15 +199,6 @@
         });
       }
     }
-    const movieButtons = document.querySelectorAll('.movie-btn');
-    movieButtons.forEach(btn => {
-      btn.addEventListener('click', () => {
-        if (!hasJoined) return alert("Please click Join Room first!");
-        const newUrl = btn.getAttribute('data-url');
-        socket.emit('change_video', newUrl); 
-      });
-    });
-
     socket.on('sync_new_video', (newUrl) => {
       statusText.innerText = 'Loading new video...';
       statusText.style.color = 'yellow';
@@ -130,34 +208,8 @@
       intendedState = 'playing';
       
       loadVideo(newUrl); 
-      setTimeout(() => {
-        if(player) player.play();
-      }, 1000);
-    });
-
-    subtitleUpload.addEventListener('change', function(event) {
-      const file = event.target.files[0];
-      if (file) {
-        const reader = new FileReader();
-        reader.onload = function(e) { socket.emit('upload_subtitle', e.target.result); };
-        reader.readAsText(file);
-      }
-    });
-
-    socket.on('sync_subtitle', (vttText) => {
-      const blob = new Blob([vttText], { type: 'text/vtt' });
-      const url = URL.createObjectURL(blob);
-      const oldTrack = document.getElementById('myTrack');
-      if (oldTrack) oldTrack.remove();
-      const newTrack = document.createElement('track');
-      newTrack.id = 'myTrack';
-      newTrack.kind = 'captions';
-      newTrack.srclang = 'en';
-      newTrack.src = url;
-      newTrack.default = true;
-      video.appendChild(newTrack);
-      setTimeout(() => { if(player) player.captions.toggled = true; }, 200);
-      alert("💬 Subtitles updated and turned on!");
+      
+      setTimeout(() => { if(player) player.play(); }, 1000);
     });
 
     function setupSyncLogic() {
@@ -233,7 +285,7 @@
 
       socket.on('force_wait', () => { 
         player.pause(); 
-        statusText.innerText = '⏸️ Waiting for a friend to buffer...';
+        statusText.innerText = 'Waiting for a friend to buffer...';
         statusText.style.color = 'orange';
       });
       
@@ -266,21 +318,6 @@
           player.currentTime = serverMemory.time;
           intendedSpeed = serverMemory.speed || 1;
           player.speed = intendedSpeed;
-
-          if (serverMemory.subtitle) {
-            const blob = new Blob([serverMemory.subtitle], { type: 'text/vtt' });
-            const url = URL.createObjectURL(blob);
-            const oldTrack = document.getElementById('myTrack');
-            if (oldTrack) oldTrack.remove();
-            const newTrack = document.createElement('track');
-            newTrack.id = 'myTrack';
-            newTrack.kind = 'captions';
-            newTrack.srclang = 'en';
-            newTrack.src = url;
-            newTrack.default = true;
-            video.appendChild(newTrack);
-            setTimeout(() => { player.captions.toggled = true; }, 200);
-          }
           
           if (serverMemory.isPlaying) {
             intendedState = 'playing';
